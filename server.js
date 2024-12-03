@@ -95,6 +95,15 @@ app.put("/collection/:collectionName/:id", (req, res, next) => {
   );
 });
 
+// Handle Order Submission
+app.post("/collection/orders", (req, res, next) => {
+  req.collection.insertOne(req.body, (e, result) => {
+    if (e) return next(e);
+    res.status(201).send({ message: "Order placed successfully", orderId: result.insertedId });
+  });
+});
+
+
 // Serve Static Files
 app.use((req, res, next) => {
   const filePath = path.join(__dirname, "static", req.url);
