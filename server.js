@@ -96,6 +96,39 @@ app.put("/collection/:collectionName/:id", (req, res, next) => {
     }
   );
 });
+app.get('/api/search', async (req, res) => {
+  const searchTerm = req.query.q?.trim(); // Get and trim search term
+
+  try {
+      // If no search term, return all lessons
+      if (!searchTerm) {
+          const allLessons = await lessonsCollection.find().toArray();
+          return res.status(200).json(allLessons);
+      }
+
+      // Check if search term is numeric
+      const isNumeric = !isNaN(Number(searchTerm));
+
+      // Perform search
+      const lessons = await lessonsCollection.find({
+          $or: [
+              { subjectName: { $regex: searchTerm, $options: 'i' } },
+              { location: { $regex: searchTerm, $options: 'i' } },
+              ...(isNumeric ? [
+                  { price: { $regex: searchTerm, $options: 'i' } }, // Partial match for price as string
+                  { availableSpaces: { $regex: searchTerm, $options: 'i' } }, // Partial match for spaces
+                  { rating: { $regex: searchTerm, $options: 'i' } } // Partial match for rating
+              ] : [])
+          ]
+      }).toArray();
+
+      res.status(200).json(lessons); // Return matching lessons
+  } catch (err) {
+      console.error("Error searching lessons:", err);
+      res.status(500).send("Error searching lessons");
+  }
+});
+
 
 // Handle Order Submission
 app.post("/collection/products", (req, res, next) => {
