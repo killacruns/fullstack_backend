@@ -5,11 +5,8 @@ const path = require("path");
 const fs = require("fs");
 const app = express();
 const port = process.env.PORT || 8000;
-const cors = require("cors");
-
 
 app.use(express.json());
-app.use(cors());
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -24,9 +21,7 @@ app.use((req, res, next) => {
 // Logger Middleware
 function logger(req, res, next) {
   console.log(
-    `Request Method: ${req.method}, Request URL: ${
-      req.url
-    } - Date: ${new Date().toLocaleString("en-GB", {
+    `Request Method: ${req.method}, Request URL: ${req.url} - Date: ${new Date().toLocaleString("en-GB", {
       timeZone: "Asia/Dubai",
     })}`
   );
@@ -52,7 +47,7 @@ MongoClient.connect(
 
 // Root Route
 app.get("/", (req, res) => {
-  res.send("Select a collection, e.g., /collection/messages");
+  res.send("Select a collection, e.g., /collection/products");
 });
 
 // Middleware to Get Collection
@@ -77,68 +72,86 @@ app.post("/collection/:collectionName", (req, res, next) => {
   });
 });
 
-// Get Document by ID
-app.get("/collection/:collectionName/:id", (req, res, next) => {
-  req.collection.findOne({ _id: new ObjectID(req.params.id) }, (e, result) => {
-    if (e) return next(e);
-    res.send(result);
-  });
-});
+// Update Available Spaces for Lessons
+app.put("/collection/lessons/:id", (req, res, next) => {
+  const updatedSpaces = req.body.spaces;
 
-// Update a Document
-app.put("/collection/:collectionName/:id", (req, res, next) => {
+  if (updatedSpaces < 0) {
+    return res.status(400).json({ msg: "Spaces cannot be negative" });
+  }
+
   req.collection.updateOne(
     { _id: new ObjectID(req.params.id) },
-    { $set: req.body },
+    { $set: { spaces: updatedSpaces } },
     (e, results) => {
       if (e) return next(e);
-      res.send(results.modifiedCount === 1 ? { msg: "success" } : { msg: "error" });
+
+      res.send(
+        results.modifiedCount === 1
+          ? { msg: "Spaces updated successfully" }
+          : { msg: "Lesson not found or no changes made" }
+      );
     }
   );
 });
-app.get('/api/search', async (req, res) => {
-  const searchTerm = req.query.q?.trim(); // Get and trim search term
+
+// Enhanced Search Functionality
+app.get("/api/search", async (req, res) => {
+  const searchTerm = req.query.q?.trim();
+  const lessonsCollection = db.collection("lessons");
 
   try {
-      // If no search term, return all lessons
-      if (!searchTerm) {
-          const allLessons = await lessonsCollection.find().toArray();
-          return res.status(200).json(allLessons);
-      }
+    if (!searchTerm) {
+      const allLessons = await lessonsCollection.find().toArray();
+      return res.status(200).json(allLessons);
+    }
 
-      // Check if search term is numeric
-      const isNumeric = !isNaN(Number(searchTerm));
+    const isNumeric = !isNaN(Number(searchTerm));
 
-      // Perform search
-      const lessons = await lessonsCollection.find({
-          $or: [
-              { subjectName: { $regex: searchTerm, $options: 'i' } },
-              { location: { $regex: searchTerm, $options: 'i' } },
-              ...(isNumeric ? [
-                  { price: { $regex: searchTerm, $options: 'i' } }, // Partial match for price as string
-                  { availableSpaces: { $regex: searchTerm, $options: 'i' } }, // Partial match for spaces
-                  { rating: { $regex: searchTerm, $options: 'i' } } // Partial match for rating
-              ] : [])
-          ]
-      }).toArray();
+    const lessons = await lessonsCollection.find({
+      $or: [
+        { subject: { $regex: searchTerm, $options: "i" } },
+        { location: { $regex: searchTerm, $options: "i" } },
+        ...(isNumeric
+          ? [
+              { price: { $eq: Number(searchTerm) } },
+              { spaces: { $eq: Number(searchTerm) } },
+            ]
+          : []),
+      ],
+    }).toArray();
 
-      res.status(200).json(lessons); // Return matching lessons
+    res.status(200).json(lessons);
   } catch (err) {
-      console.error("Error searching lessons:", err);
-      res.status(500).send("Error searching lessons");
+    console.error("Error searching lessons:", err);
+    res.status(500).send("Error searching lessons");
   }
 });
 
+// Submit Order
+app.post('/api/orders', async (req, res) => {
+  const { customer, items, totalPrice } = req.body;
 
-// Handle Order Submission
-app.post("/collection/products", (req, res, next) => {
-  req.collection.insertOne(req.body, (e, result) => {
-    if (e) return next(e);
-    res.status(201).send({ message: "Order placed successfully", orderId: result.insertedId });
-  });
+  if (!customer || !items || items.length === 0 || !totalPrice) {
+    return res.status(400).json({ message: 'Invalid order data' });
+  }
+
+  try {
+    // Insert the order into the "orders" collection
+    const orderCollection = db.collection('orders');
+    const result = await orderCollection.insertOne({
+      customer,
+      items,
+      totalPrice,
+      date: new Date(),
+    });
+
+    res.status(201).json({ message: 'Order placed successfully', orderId: result.insertedId });
+  } catch (err) {
+    console.error('Error placing order:', err);
+    res.status(500).json({ message: 'Error placing order' });
+  }
 });
-
-
 
 // Serve Static Files
 app.use((req, res, next) => {
