@@ -5,9 +5,11 @@ const path = require("path");
 const fs = require("fs");
 const app = express();
 const port = process.env.PORT || 8000;
+const cors = require("cors");
 
 
 app.use(express.json());
+app.use(cors());
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -96,12 +98,13 @@ app.put("/collection/:collectionName/:id", (req, res, next) => {
 });
 
 // Handle Order Submission
-app.post("/collection/orders", (req, res, next) => {
+app.post("/collection/products", (req, res, next) => {
   req.collection.insertOne(req.body, (e, result) => {
     if (e) return next(e);
     res.status(201).send({ message: "Order placed successfully", orderId: result.insertedId });
   });
 });
+
 
 
 // Serve Static Files
