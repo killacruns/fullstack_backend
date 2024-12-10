@@ -4,30 +4,11 @@ const ObjectID = require("mongodb").ObjectId;
 const path = require("path");
 const fs = require("fs");
 const app = express();
+const cors = require("cors");
 const port = process.env.PORT || 8000;
 
 app.use(express.json());
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS, POST, PUT");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Access-Control-Allow-Headers, Origin, Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers"
-  );
-  next();
-});
-
-// Logger Middleware
-function logger(req, res, next) {
-  console.log(
-    `Request Method: ${req.method}, Request URL: ${req.url} - Date: ${new Date().toLocaleString("en-GB", {
-      timeZone: "Asia/Dubai",
-    })}`
-  );
-  next();
-}
-app.use(logger);
+app.use(cors());
 
 let db;
 
@@ -44,6 +25,17 @@ MongoClient.connect(
     console.log("Connected to MongoDB");
   }
 );
+// Logger Middleware
+function logger(req, res, next) {
+  console.log(
+    `Request Method: ${req.method}, Request URL: ${req.url} - Date: ${new Date().toLocaleString("en-GB", {
+      timeZone: "Asia/Dubai",
+    })}`
+  );
+  next();
+}
+app.use(logger);
+
 
 // Root Route
 app.get("/", (req, res) => {
@@ -73,18 +65,21 @@ app.post("/collection/:collectionName", (req, res, next) => {
 });
 
 // Update Available Spaces for Lessons
-app.put("/collection/lessons/:id", (req, res, next) => {
+app.put("/collection/:collectionName/:id", (req, res, next) => {
   const updatedSpaces = req.body.spaces;
 
   if (updatedSpaces < 0) {
     return res.status(400).json({ msg: "Spaces cannot be negative" });
   }
 
-  req.collection.updateOne(
+  req.collection.update(
     { _id: new ObjectID(req.params.id) },
     { $set: { spaces: updatedSpaces } },
     (e, results) => {
-      if (e) return next(e);
+      if (e) {
+        console.error("Error updating spaces:", e);
+        return res.status(500).json({ msg: "Internal Server Error" });
+      }
 
       res.send(
         results.modifiedCount === 1
@@ -96,7 +91,7 @@ app.put("/collection/lessons/:id", (req, res, next) => {
 });
 
 // Enhanced Search Functionality
-app.get("/api/search", async (req, res) => {
+app.get("/search", async (req, res) => {
   const searchTerm = req.query.q?.trim();
   const lessonsCollection = db.collection("lessons");
 
@@ -129,27 +124,31 @@ app.get("/api/search", async (req, res) => {
 });
 
 // Submit Order
-app.post('/api/orders', async (req, res) => {
-  const { customer, items, totalPrice } = req.body;
-
-  if (!customer || !items || items.length === 0 || !totalPrice) {
-    return res.status(400).json({ message: 'Invalid order data' });
-  }
+app.post("/collection/orders", async (req, res, next) => {
+  const orderData = req.body; // Access the order information sent from the front-end
+  const cart = orderData.cart;
 
   try {
-    // Insert the order into the "orders" collection
-    const orderCollection = db.collection('orders');
-    const result = await orderCollection.insertOne({
-      customer,
-      items,
-      totalPrice,
-      date: new Date(),
-    });
+      // First, save the order to the "orders" collection
+      await db.collection("orders").insertOne(orderData);
 
-    res.status(201).json({ message: 'Order placed successfully', orderId: result.insertedId });
+      // Now, update the "spaces" for each course in the cart
+      for (const course of cart) {
+          console.log(`Updating course with ID: ${course._id}, Decreasing spaces by: ${course.quantity}`);
+          // Update the spaces by subtracting the quantity of this course
+          const result = await db.collection("courses").updateOne(
+              { _id: new ObjectID(course._id) },
+              { $inc: { spaces: -course.quantity } } // Decrease the spaces by the quantity of the course
+          );
+          if (result.matchedCount === 0) {
+              console.error(`Course with _id ${course._id} not found`);
+          }
+      }
+
+      res.status(201).json({ message: 'Order saved successfully!', order: orderData });
   } catch (err) {
-    console.error('Error placing order:', err);
-    res.status(500).json({ message: 'Error placing order' });
+      console.error("Error saving order or updating course spaces:", err);
+      res.status(500).json({ message: "Failed to save order or update course spaces", error: err });
   }
 });
 
